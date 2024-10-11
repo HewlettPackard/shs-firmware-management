@@ -1,0 +1,6 @@
+* @james-swaro @leena-radeke
+build.sh @hpe/hpc-shs-cassini-enablement
+run.*	@hpe/hpc-shs-cassini-enablement
+*.spec @hpe/hpc-shs-cassini-enablement
+Jenkinsfile* @hpe/hpc-shs-cassini-enablement
+runBuildPrep.sh @hpe/hpc-shs-cassini-enablement

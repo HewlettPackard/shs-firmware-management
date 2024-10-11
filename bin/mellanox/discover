@@ -1,0 +1,27 @@
+#!/bin/bash
+#
+# Copyright 2021 Hewlett Packard Enterprise Development LP
+#
+
+device="$1"
+device_name=$(basename $device)
+
+mellanox_vendor_id=0x15b3
+mellanox_device_id=0x1017
+
+if [[ ! -e ${device}/device/device || ! -e ${device}/device/vendor ]] ; then
+    exit 1
+fi
+
+interface_device_id=$(cat ${device}/device/device)
+interface_vendor_id=$(cat ${device}/device/vendor)
+
+if [[ "${mellanox_vendor_id}" != "${interface_vendor_id}" ]] ; then
+    exit 1
+fi
+
+if [[ "${mellanox_device_id}" != "${interface_device_id}" ]] ; then
+    exit 1
+fi
+
+exit 0

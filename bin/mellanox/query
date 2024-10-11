@@ -1,0 +1,43 @@
+#!/bin/bash
+#
+# Copyright 2021 Hewlett Packard Enterprise Development LP
+#
+
+if [[ $# -lt 1 ]] ; then
+    echo device name is a required argument
+    exit 1
+fi
+
+if [[ $# -lt 2 ]] ; then
+    args=""
+else
+    args=${@:1:$#-1}
+fi
+device=${@:$#}
+
+device_name=$(basename ${device})
+attributes="${args}"
+
+
+if [[ -z "$attributes" ]] ; then
+    attributes="version"
+fi
+
+output_string="${device_name}:\n"
+
+for attr in ${attributes} ; do
+    value=""
+    case "$attr" in
+        version )
+            value=$(ethtool -i ${device_name} | grep 'firmware-version' | awk '{print $2}')
+            ;;
+        * )
+            echo unrecognized attribute: ${attr}
+            exit 1
+            ;;
+    esac
+
+    output_string="${output_string}\t$(printf "%s: %s\n" $attr $value)"
+done
+
+echo -e ${output_string}

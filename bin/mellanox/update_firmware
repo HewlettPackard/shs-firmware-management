@@ -1,0 +1,74 @@
+#!/bin/bash
+#
+# Copyright 2021 Hewlett Packard Enterprise Development LP
+#
+
+SOURCE="${BASH_SOURCE[0]}"
+while [ -h "$SOURCE" ]; do # resolve $SOURCE until the file is no longer a symlink
+  DIR="$( cd -P "$( dirname "$SOURCE" )" && pwd )"
+  SOURCE="$(readlink "$SOURCE")"
+  [[ $SOURCE != /* ]] && SOURCE="$DIR/$SOURCE" # if $SOURCE was a relative symlink, we need to resolve it relative to the path where the symlink file was located
+done
+DIR="$( cd -P "$( dirname "$SOURCE" )" && pwd )"
+
+source $DIR/common.sh
+
+HELP=false
+
+# define arguments
+SHORT_OPTS="+h"
+LONG_OPTS="help"
+OPTS=`getopt -o ${SHORT_OPTS} --long ${LONG_OPTS} -n 'parse-options' -- "$@"`
+
+if [ $? != 0 ] ; then echo "Failed parsing options." >&2 ; exit 1 ; fi
+
+eval set -- "$OPTS"
+
+while true; do
+    case "$1" in
+        -h | --help )
+            HELP=true
+            ;;
+        -- )
+            break
+            ;;
+        *  )
+            break
+            ;;
+    esac
+    shift
+done
+shift 
+
+device="$1"
+
+if [[ -z "$device" ]] ; then
+    echo device path is required as an argument
+    exit 1
+fi
+
+shift
+device_name=$(basename $device)
+
+if $HELP ; then
+    echo ""
+    exit 0
+fi
+
+set -e
+
+data=$(read_mst_data $device_name)
+ret=$?
+
+if [[ $ret -ne 0 ]] ; then
+    exit $ret
+fi
+
+device_id=$(echo $data | awk '{print $2}')
+PSID=$(flint -d $device_id query | grep PSID | awk '{print $2}')
+DEVICE_CONFIG_DIR=$CONFIG_DIR/$PSID
+
+mlxfwmanager -D $DEVICE_CONFIG_DIR -l -d $device_id
+
+mlxfwmanager -D $DEVICE_CONFIG_DIR -u -y --log -L /tmp/mlnx-fw-update.log -d ${device_id}
+

@@ -1,0 +1,48 @@
+#!/bin/bash
+#
+# Copyright 2021 Hewlett Packard Enterprise Development LP
+#
+
+SOURCE="${BASH_SOURCE[0]}"
+while [ -h "$SOURCE" ]; do # resolve $SOURCE until the file is no longer a symlink
+  DIR="$( cd -P "$( dirname "$SOURCE" )" && pwd )"
+  SOURCE="$(readlink "$SOURCE")"
+  [[ $SOURCE != /* ]] && SOURCE="$DIR/$SOURCE" # if $SOURCE was a relative symlink, we need to resolve it relative to the path where the symlink file was located
+done
+DIR="$( cd -P "$( dirname "$SOURCE" )" && pwd )"
+
+source $DIR/common.sh
+
+device="$1"
+device_name=$(basename $device)
+
+set -e
+
+data=$(read_mst_data $device_name)
+ret=$?
+
+if [[ $ret -ne 0 ]] ; then
+    exit $ret
+fi
+
+device_id=$(echo $data | awk '{print $2}')
+
+# Mellanox configuration values that we want to set
+declare -A config
+config[NUM_VF_MSIX]=11
+config[RPG_TIME_RESET_P1]=1
+config[RPG_AI_RATE_P1]=131071
+config[RPG_HAI_RATE_P1]=131071
+config[RPG_GD_P1]=1
+config[RPG_MIN_DEC_FAC_P1]=1
+config[RPG_MIN_RATE_P1]=131070
+config[RATE_TO_SET_ON_FIRST_CNP_P1]=131071
+config[MIN_TIME_BETWEEN_CNPS_P1]=0
+config[KEEP_ETH_LINK_UP_P1]=1
+config[PCI_WR_ORDERING]=1
+config[ADVANCED_PCI_SETTINGS]=1
+
+for key in "${!config[@]}" ; do
+  mlxconfig -d $device_id -y set ${key}=${config[$key]}
+done
+mlxconfig -e -d $device_id query

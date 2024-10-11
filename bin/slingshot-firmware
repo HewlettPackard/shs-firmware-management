@@ -1,0 +1,332 @@
+#!/bin/bash
+#
+# Copyright 2021 Hewlett Packard Enterprise Development LP
+#
+
+if [[ ${EUID} -ne 0 ]] ; then
+    echo please run this script as root. Exiting.
+    exit -1
+fi
+
+managed_device_directory=/opt/slingshot/firmware
+DEBUG=false
+VERBOSE=false
+DEVICE=""
+HELP=false
+verb=""
+ADDED_USAGE=""
+VERSION=dev-master
+
+function write_to_log() {
+    echo "$@" 1>&2
+}
+
+function debug() {
+    if $DEBUG ; then
+        write_to_log "DEBUG: $@"
+    fi
+}
+
+function info() {
+    if $VERBOSE ; then
+        write_to_log "INFO: $@"
+    fi
+}
+
+function warn() {
+    write_to_log "WARN: $@"
+}
+
+function error() {
+    write_to_log "ERROR: $@"
+}
+
+
+function discover_managed_device_categories {
+    managed_device_categories=$(ls -d ${managed_device_directory}/*)
+    echo ${managed_device_categories}
+}
+
+
+function init() {
+    for entry in ${managed_devices} ; do
+        if [[ -f $entry/default/bin/init ]] ; then
+            $entry/default/bin/init &> /dev/null
+        fi
+    done
+}
+
+function cleanup() {
+    for entry in ${managed_devices} ; do
+        if [[ -f $entry/default/bin/cleanup ]] ; then
+            $entry/default/bin/cleanup &> /dev/null
+        fi
+    done
+}
+
+function version() {
+    echo """\
+$(basename $0) version $VERSION
+"""
+}
+
+function usage() {
+    echo -e """\
+Usage: $(basename $0) [global-opts] <action> [action-opts]
+
+firmware management script for Slingshot network devices
+
+Actions:
+    update              update firmware and apply firmware configuration
+    query               query attributes of an adapter
+
+Global options:
+    -d | --debug        print debug messages
+    -D | --device       run action on device
+    -h | --help         print help
+    -v | --verbose      increase verbosity
+    -V | --version      print version and exit
+${ADDED_USAGE}
+"""
+}
+
+function update() {
+    local dir="$1"
+    local network_device="$2"
+    shift
+    shift
+    local args=$@
+    local module_args=$(basename $(echo $dir | sed -e 's:/default/bin::g'))_opt
+
+    UPDATE_FW=${dir}/update_firmware
+    APPLY_CFG=${dir}/apply_config
+
+    if [[ -f ${UPDATE_FW} ]] ; then
+        ${UPDATE_FW} $args ${!module_args} ${network_device}
+        ret=$?
+
+        if test $ret -ne 0 ; then
+            error "failed to update firmware for device: ${network_device}"
+        fi
+    fi
+
+    if [[ -f ${APPLY_CFG} ]] ; then
+        ${APPLY_CFG} $args ${!module_args} ${network_device}
+        ret=$?
+
+        if test $ret -ne 0 ; then
+            error "failed to apply firmware configuration for device ${network_device}"
+        fi
+    fi
+}
+
+function query() {
+    local dir="$1"
+    local network_device="$2"
+    shift
+    shift
+    local args=$@
+    local module_args=$(basename $(echo $dir | sed -e 's:/default/bin::g'))_opt
+    local device_name=$(basename $network_device)
+    local QUERY=${dir}/query
+
+    if [[ -f ${QUERY} ]] ; then
+
+        ${QUERY} $args ${!module_args} ${network_device}
+        ret=$?
+
+        if test $ret -ne 0 ; then
+            error "failed to query device: ${network_device}"
+        fi
+    else
+        warn "query function not defined for device: ${network_device}"
+    fi
+}
+
+managed_devices=$(discover_managed_device_categories)
+
+function execute_action() {
+    local action=$1
+    local devices=$2
+    shift
+    shift
+    # define arguments
+    local SHORT_OPTS="+h"
+    local LONG_OPTS="help"
+    local OPTS=`getopt -q -o ${SHORT_OPTS} --long ${LONG_OPTS} -n 'parse-options' -- "$@"`
+
+    if [ $? != 0 ] ; then error "Failed parsing options." >&2 ; exit 1 ; fi
+
+    eval set -- "$OPTS"
+
+    while true; do
+        case "$1" in
+            -h | --help )
+                HELP=true
+                ;;
+            -- )
+                break
+                ;;
+            *  )
+                break
+                ;;
+        esac
+        shift
+    done
+    shift # remove -- from args
+
+    if $HELP ; then
+        for entry in ${managed_devices} ; do
+            local dir=$entry/default/bin
+
+            local bin=$action
+            if [[ "$action" == "update" ]]; then
+                bin="update_firmware"
+            fi
+
+            if [[ ! -f ${dir}/${bin} ]] ; then
+                continue
+            fi
+
+            help_text=$(${dir}/${bin} --help)
+
+            if [[ -z "${help_text}" ]] ; then
+                debug "no options advertised by $entry"
+                continue
+            fi
+
+            ADDED_USAGE="""${ADDED_USAGE}\
+
+$(basename $entry) module options:
+    module-specific options are passed via the '--$(basename $entry)_opt' option
+
+${help_text}
+"""
+        done
+        usage
+        exit 0
+    fi
+
+    for network_device in $devices ; do
+        if [[ "$(basename ${network_device})" == "lo" ]] ; then
+            continue
+        fi
+
+        for entry in ${managed_devices} ; do
+            local dir=$entry/default/bin
+            local DISCOVER=${dir}/discover
+
+            if [[ ! -f ${DISCOVER} ]] ; then
+                continue
+            fi
+
+            ${DISCOVER} ${network_device}
+            ret=$?
+
+            if test $ret -ne 0 ; then
+                info "${network_device} is not a managed device for $(basename $entry) category"
+                continue
+            fi
+
+            $action $dir $network_device $@
+        done
+    done
+}
+
+function main() {
+    # define arguments
+    local SHORT_OPTS="+dD:hvV"
+    local LONG_OPTS="debug,device:,help,verbose,version"
+    for entry in ${managed_devices} ; do
+        local module=$(basename $entry)
+        LONG_OPTS="${LONG_OPTS},${module}_opt:"
+        ADDED_USAGE="""${ADDED_USAGE}\
+$(printf "    %-20s%-s" "--${module}_opt" "options to provide to ${module} module actions")
+"""
+    done
+
+    local OPTS=`getopt -q -o ${SHORT_OPTS} --long ${LONG_OPTS} -n 'parse-options' -- "$@"`
+
+    if [ $? != 0 ] ; then error "Failed parsing options." >&2 ; exit 1 ; fi
+
+    eval set -- "$OPTS"
+
+    while true; do
+        case "$1" in
+            -d | --debug )
+                DEBUG=true
+                ;;
+            -D | --device )
+                shift
+                DEVICE="$1"
+                ;;
+            -h | --help )
+                HELP=true
+                ;;
+            -v | --verbose )
+                VERBOSE=true
+                ;;
+            -V | --version )
+                version
+                exit 0
+                ;;
+            -- )
+                break
+                ;;
+            *  )
+                if [[ "$1" =~ [a-z]+_opt ]] ; then
+                    var=$(echo $1 | sed -e 's/-//g')    # set <plugin>_opt to value of option
+                    eval ${var}=\"$2\"
+                    shift
+                else
+                    break
+                fi
+                ;;
+        esac
+        shift
+    done
+
+    if $HELP ; then
+        usage
+        exit 0
+    fi
+
+    # initialize plugins
+    init
+
+    shift # consume the --
+    local action=$(echo $1 | tr '[:upper:]' '[:lower:]')
+    shift # consume the 'action'
+
+    if [[ -z "${action}" ]] ; then
+        usage
+        exit 0
+    fi
+
+    # run the action
+    case "${action}" in
+        update)
+            ;;
+        query)
+            ;;
+        *)
+            usage
+
+            error "unknown action: $1"
+            exit 1
+            ;;
+    esac
+
+    local devices=""
+    if [[ -z "$DEVICE" ]] ; then
+        devices=$(find /sys/class/net -type l)
+    else
+        devices=$(find /sys/class/net -type l -name "$DEVICE")
+    fi
+
+    execute_action $action "$devices" $@
+}
+
+trap cleanup EXIT
+main $@
+
