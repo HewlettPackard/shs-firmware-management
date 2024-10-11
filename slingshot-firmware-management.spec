@@ -10,7 +10,7 @@
 
 
 Name: %{product}-%{component}
-Version: 2.0.11
+Version: 2.1.0
 Release: %(echo ${BUILD_METADATA})
 Group: System Environment/Libraries
 License: BSD
