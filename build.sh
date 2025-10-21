@@ -26,6 +26,8 @@ fi
 
 . ${CE_BUILD_SCRIPT_REPO}/build/sh/rpmbuild/load.sh
 
-setup_dst_env
-dst_build_rpm -c ${CE_BUILD_SCRIPT_REPO}/build/configs/firmware-management.yaml $@
 
+setup_dst_env
+
+dst_build_rpm -c ${CE_BUILD_SCRIPT_REPO}/build/configs/${CE_CONFIG_FILE} $@
+dst_build_deb --yamlfile ${CE_BUILD_SCRIPT_REPO}/build/configs/${CE_CONFIG_FILE} --ps ${PRODUCT} --main-branch "main" $@
