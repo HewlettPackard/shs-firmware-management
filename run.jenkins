@@ -2,4 +2,6 @@
 
 DIR=$(cd $(dirname $0) && pwd)
 
+PRODUCT=slingshot-host-software \
+CE_CONFIG_FILE=firmware-management.yaml \
 bash -x $DIR/build.sh -n $@
